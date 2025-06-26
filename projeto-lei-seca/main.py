@@ -15,13 +15,13 @@ def detectaFacesSSD(net, imagem, tamanho = 300):
 
   for i in range(0, deteccoes.shape[2]):
     confianca = deteccoes[0,0,i,2]
+    text_conf = "{:.2f}%".format(confianca * 100)
+    print(text_conf)
     
     if confianca > conf_min:
       box = deteccoes[0,0,i,3:7] * np.array([w,h,w,h])
       (startX, startY, endX, endY) = box.astype("int")
-      
-      text_conf = "{:.2f}%".format(confianca * 100)
-      print(text_conf)
+
       cv2.rectangle(imagem, (startX, startY), (endX, endY), (0,255,0), 2)
       cv2.putText(imagem, text_conf, (startX, startY-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 2)
 
