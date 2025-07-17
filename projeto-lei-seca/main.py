@@ -31,7 +31,7 @@ def detectaFacesSSD(net, foto):
       (startX, startY, endX, endY) = [int(v) for v in (startX, startY, endX, endY)]
 
       cv2.rectangle(foto, (startX, startY), (endX, endY), (0,255,0), 2)
-      cv2.putText(foto, text_conf, (startX, startY-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 2)
+      # cv2.putText(foto, text_conf, (startX, startY-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 2)
 
       return foto, text_conf
     else:
@@ -89,10 +89,20 @@ if img_file_buffer is not None:
           
           distanciasNormalizadas = [np.sqrt(dist) for dist in distancias[0]]
           index_of_min = np.argmin(distanciasNormalizadas)
-          if distanciasNormalizadas[index_of_min] > 0.6:
+          if distanciasNormalizadas[index_of_min] > 0.4:
             st.write("Nenhum rosto reconhecido com confiança suficiente.")
+            st.button("Conferir via CPF", key="conferir_cpf")
           else:
-            caption = f"Match com probabilidade(distância) de {distanciasNormalizadas[index_of_min]*100:.2f}% em potencial com base dados"
-            st.image(f"./database/imgs/{imgs_cnh[index_of_min]}", caption=caption)
+            colFoto, colInfo = st.columns(2)
+            with colFoto:
+              caption = f"Match com probabilidade(distância) de {distanciasNormalizadas[index_of_min]*100:.2f}% em potencial com base dados"
+              st.image(f"./database/imgs/{imgs_cnh[index_of_min]}", caption=caption)
+            with colInfo:
+              st.badge("CNH Ok", color="gray", icon="✅")
+              st.badge("Multas em aberto", color="gray", icon="🚨")
+              st.badge("Mandado judicial em aberto", color="gray", icon="🚨")
+              st.button("Mais detalhes", key="mais_detalhes")
+              st.button("Conferir via CPF", key="conferir_cpf")
+
       else:
         st.write("Nenhuma face detectada.")
