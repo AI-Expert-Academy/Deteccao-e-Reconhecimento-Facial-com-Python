@@ -19,8 +19,10 @@ if not logger.hasHandlers():
   handler.setFormatter(formatter)
   logger.addHandler(handler)
 
+logger.info("Início do carregamento de base de dados de imagens de CNH.")
 index = faiss.read_index("./database/cnh_imgs.faiss")
 imgs_cnh = os.listdir('./database/imgs/')
+logger.info("Fim do carregamento de base de dados de imagens de CNH.")
 
 def detectaFacesSSD(net, foto):
   tamanho = 300
@@ -33,7 +35,7 @@ def detectaFacesSSD(net, foto):
   for i in range(0, deteccoes.shape[2]):
     confianca = deteccoes[0,0,i,2]
     text_conf = "{:.2f}%".format(confianca * 100)
-    print(text_conf)
+    logger.info(f"Rosto detectado com {text_conf} de confiança.")
     
     if confianca > conf_min:
       box = deteccoes[0,0,i,3:7] * np.array([w,h,w,h])
@@ -45,7 +47,7 @@ def detectaFacesSSD(net, foto):
 
       return foto, text_conf
     else:
-      print("Nenhuma face detectada com confiança suficiente.")
+      logger.info("Nenhuma face detectada com confiança suficiente.")
       return None, "0.00%"
     
 def reconheceFace(face_300x300):
@@ -92,18 +94,17 @@ if img_file_buffer is not None:
       faceDetectadaComBoundingBox, textoConfianca = detectaFacesSSD(network, img_array_300x300)
       faceDetectadaArray = np.array(faceDetectadaComBoundingBox)
       if faceDetectadaComBoundingBox is not None:
-        caption = f"Rosto detectado com {textoConfianca} confiança"
+        caption = f"Rosto detectado com {textoConfianca} de confiança"
         st.image(faceDetectadaArray, caption=caption)
         with colReconhecimento:
           st.write("Reconhecimento facial:")
           distancias, indices = reconheceFace(img_array_300x300)
           
-          
           if distancias is not None or indices is not None:
             # Debug output
             for rank, idx in enumerate(indices[0]):
               dist = distancias[0][rank]
-              print(f"Match #{rank+1}: (distância: {np.sqrt(dist):.4f}) - Índice: {idx}")
+              logger.info(f"Match #{rank+1}: (distância: {np.sqrt(dist):.4f}) - Índice: {idx}")
             
             distanciasNormalizadas = [np.sqrt(dist) for dist in distancias[0]]
             index_of_min = np.argmin(distanciasNormalizadas)
