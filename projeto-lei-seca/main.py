@@ -87,19 +87,19 @@ if imgFileBufferFace is not None:
   st.image(img_array, caption="Imagem capturada", use_container_width=True)
 
   # 2 Containers lado a lado: Um para detecção de face e outro para reconhecimento facial
-  colDeteccao, colReconhecimento = st.columns(2)
+  colDeteccaoFace, colReconhecimentoFace = st.columns(2)
 
   faceDetectadaComBoundingBox = None
 
   # Mostra a face detectada
-  with colDeteccao:
+  with colDeteccaoFace:
     st.write("Detecção de face:")
     faceDetectadaComBoundingBox, textoConfianca = detectaFacesSSD(network, img_array_300x300)
     faceDetectadaArray = np.array(faceDetectadaComBoundingBox)
     if faceDetectadaComBoundingBox is not None:
       caption = f"Rosto detectado com {textoConfianca} de confiança"
       st.image(faceDetectadaArray, caption=caption)
-      with colReconhecimento:
+      with colReconhecimentoFace:
         st.write("Reconhecimento facial:")
         distancias, indices = reconheceFace(img_array_300x300)
         
@@ -174,3 +174,21 @@ if imgFileBufferPlaca is not None:
   print(text)
   text = "".join(character for character in text if character.isalnum())
   print(text)
+
+  # 2 Containers lado a lado: Um para detecção de placa e outro para reconhecimento
+  colDeteccaoPlaca, colReconhecimentoPlaca = st.columns(2)
+
+  with colDeteccaoPlaca:
+    st.write("Detecção de placa:")
+
+    imgPlacaDetectada = cv2.rectangle(img_array, (beginX, beginY), (endX, endY), (0, 255, 0), 3)
+
+    st.image(imgPlacaDetectada, caption="Imagem capturada", use_container_width=True)
+
+    with colReconhecimentoPlaca:
+      st.write("Reconhecimento de placa:")
+      st.text_input("Placa detectada:", value=text, key="placa_detectada")
+      st.button("Conferir via placa", key="conferir_placa")
+      st.badge("IPVA em dia", color="gray", icon="✅")
+      st.badge("Multas em aberto", color="gray", icon="🚨")
+      st.badge("Carro clonado", color="gray", icon="🚨")
