@@ -6,8 +6,18 @@ import numpy as np
 import tempfile
 import os
 import streamlit as st
+import logging
 
 from PIL import Image
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+if not logger.hasHandlers():
+  handler = logging.StreamHandler()
+  formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+  handler.setFormatter(formatter)
+  logger.addHandler(handler)
 
 index = faiss.read_index("./database/cnh_imgs.faiss")
 imgs_cnh = os.listdir('./database/imgs/')
@@ -42,12 +52,15 @@ def reconheceFace(face_300x300):
   face_query_rgb = cv2.cvtColor(face_300x300, cv2.COLOR_BGR2RGB)
   localizacao_face = face_recognition.face_locations(face_query_rgb, model='cnn')
   
-  #TODO: Tratar caso de face não detectada pelo modelo cnn
-  
-  query_enconding_face = face_recognition.face_encodings(face_query_rgb, localizacao_face)[0].astype("float32").reshape(1, -1)
-  k = 3  # número de matches
-  distances, indices = index.search(query_enconding_face, k)
-  return distances, indices
+  if len(localizacao_face) != 0:
+    query_enconding_face = face_recognition.face_encodings(face_query_rgb, localizacao_face)[0].astype("float32").reshape(1, -1)
+    k = 3  # número de matches
+    distances, indices = index.search(query_enconding_face, k)
+    return distances, indices
+  else:
+    logger.info("Nenhuma face detectada para reconhecimento.")
+    logger.debug("Nenhuma face detectada para reconhecimento utilizando modelo CNN da biblioteca face_recognition.")
+    return None, None
 
 arquivo_modelo = './res10_300x300_ssd_iter_140000.caffemodel'
 arquivo_prototxt = './deploy.prototxt.txt'
@@ -82,30 +95,34 @@ if img_file_buffer is not None:
         caption = f"Rosto detectado com {textoConfianca} confiança"
         st.image(faceDetectadaArray, caption=caption)
         with colReconhecimento:
-          st.write("Rosto reconhecido:")
+          st.write("Reconhecimento facial:")
           distancias, indices = reconheceFace(img_array_300x300)
           
-          # Debug output
-          for rank, idx in enumerate(indices[0]):
-            dist = distancias[0][rank]
-            print(f"Match #{rank+1}: (distância: {np.sqrt(dist):.4f}) - Índice: {idx}")
           
-          distanciasNormalizadas = [np.sqrt(dist) for dist in distancias[0]]
-          index_of_min = np.argmin(distanciasNormalizadas)
-          if distanciasNormalizadas[index_of_min] > 0.5:  # Limite de distância para considerar um match
-            st.write("Nenhum rosto reconhecido com confiança suficiente.")
-            st.button("Conferir via CPF", key="conferir_cpf")
-          else:
-            colFoto, colInfo = st.columns(2)
-            with colFoto:
-              caption = f"Match com probabilidade(distância) de {distanciasNormalizadas[index_of_min]*100:.2f}% em potencial com base dados"
-              st.image(f"./database/imgs/{imgs_cnh[index_of_min]}", caption=caption)
-            with colInfo:
-              st.badge("CNH Ok", color="gray", icon="✅")
-              st.badge("Multas em aberto", color="gray", icon="🚨")
-              st.badge("Mandado judicial em aberto", color="gray", icon="🚨")
-              st.button("Mais detalhes", key="mais_detalhes")
+          if distancias is not None or indices is not None:
+            # Debug output
+            for rank, idx in enumerate(indices[0]):
+              dist = distancias[0][rank]
+              print(f"Match #{rank+1}: (distância: {np.sqrt(dist):.4f}) - Índice: {idx}")
+            
+            distanciasNormalizadas = [np.sqrt(dist) for dist in distancias[0]]
+            index_of_min = np.argmin(distanciasNormalizadas)
+            if distanciasNormalizadas[index_of_min] > 0.55:  # Limite de distância para considerar um match
+              st.write("Nenhum rosto reconhecido com confiança suficiente.")
               st.button("Conferir via CPF", key="conferir_cpf")
-
+            else:
+              colFoto, colInfo = st.columns(2)
+              with colFoto:
+                caption = f"Match com probabilidade(distância) de {distanciasNormalizadas[index_of_min]*100:.2f}% em potencial com base dados"
+                st.image(f"./database/imgs/{imgs_cnh[index_of_min]}", caption=caption)
+              with colInfo:
+                st.badge("CNH Ok", color="gray", icon="✅")
+                st.badge("Multas em aberto", color="gray", icon="🚨")
+                st.badge("Mandado judicial em aberto", color="gray", icon="🚨")
+                st.button("Mais detalhes", key="mais_detalhes")
+                st.button("Conferir via CPF", key="conferir_cpf")
+          else:
+            st.write("Nenhum rosto reconhecido.")
+            st.button("Conferir via CPF", key="conferir_cpf")
       else:
         st.write("Nenhuma face detectada.")
