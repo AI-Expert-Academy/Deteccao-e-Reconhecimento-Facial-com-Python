@@ -7,6 +7,7 @@ import tempfile
 import os
 import streamlit as st
 import logging
+import pytesseract
 
 from PIL import Image
 
@@ -64,66 +65,112 @@ def reconheceFace(face_300x300):
     logger.debug("Nenhuma face detectada para reconhecimento utilizando modelo CNN da biblioteca face_recognition.")
     return None, None
 
+logger.info("Início do carregamento do modelo de detecção de faces.")
 arquivo_modelo = './res10_300x300_ssd_iter_140000.caffemodel'
 arquivo_prototxt = './deploy.prototxt.txt'
 network = cv2.dnn.readNetFromCaffe(arquivo_prototxt, arquivo_modelo)
+logger.info("Fim do carregamento do modelo de detecção de faces.")
 
 st.title("Lei Seca do Futuro - Detecção de Faces e Placas")
 
 # Interface da câmera
-img_file_buffer = st.camera_input("Tire uma foto")
+imgFileBufferFace = st.camera_input("Tire uma foto", key="camera_face")
 
-if img_file_buffer is not None:
-    # Converte para imagem OpenCV
-    img = Image.open(img_file_buffer)
-    img_array = np.array(img)
-    
-    img_array_300x300 = imutils.resize(img_array, width=300, height=300)
+if imgFileBufferFace is not None:
+  # Converte para imagem OpenCV
+  img = Image.open(imgFileBufferFace)
+  img_array = np.array(img)
+  
+  img_array_300x300 = imutils.resize(img_array, width=300, height=300)
 
-    # Mostra a imagem capturada
-    st.image(img_array, caption="Imagem capturada", use_container_width=True)
+  # Mostra a imagem capturada
+  st.image(img_array, caption="Imagem capturada", use_container_width=True)
 
-    # 2 Containers lado a lado
-    colDeteccao, colReconhecimento = st.columns(2)
+  # 2 Containers lado a lado: Um para detecção de face e outro para reconhecimento facial
+  colDeteccao, colReconhecimento = st.columns(2)
 
-    faceDetectadaComBoundingBox = None
+  faceDetectadaComBoundingBox = None
 
-    # Mostra a face detectada
-    with colDeteccao:
-      st.write("Detecção de face:")
-      faceDetectadaComBoundingBox, textoConfianca = detectaFacesSSD(network, img_array_300x300)
-      faceDetectadaArray = np.array(faceDetectadaComBoundingBox)
-      if faceDetectadaComBoundingBox is not None:
-        caption = f"Rosto detectado com {textoConfianca} de confiança"
-        st.image(faceDetectadaArray, caption=caption)
-        with colReconhecimento:
-          st.write("Reconhecimento facial:")
-          distancias, indices = reconheceFace(img_array_300x300)
+  # Mostra a face detectada
+  with colDeteccao:
+    st.write("Detecção de face:")
+    faceDetectadaComBoundingBox, textoConfianca = detectaFacesSSD(network, img_array_300x300)
+    faceDetectadaArray = np.array(faceDetectadaComBoundingBox)
+    if faceDetectadaComBoundingBox is not None:
+      caption = f"Rosto detectado com {textoConfianca} de confiança"
+      st.image(faceDetectadaArray, caption=caption)
+      with colReconhecimento:
+        st.write("Reconhecimento facial:")
+        distancias, indices = reconheceFace(img_array_300x300)
+        
+        if distancias is not None or indices is not None:
+          # Debug output
+          for rank, idx in enumerate(indices[0]):
+            dist = distancias[0][rank]
+            logger.info(f"Match #{rank+1}: (distância: {np.sqrt(dist):.4f}) - Índice: {idx}")
           
-          if distancias is not None or indices is not None:
-            # Debug output
-            for rank, idx in enumerate(indices[0]):
-              dist = distancias[0][rank]
-              logger.info(f"Match #{rank+1}: (distância: {np.sqrt(dist):.4f}) - Índice: {idx}")
-            
-            distanciasNormalizadas = [np.sqrt(dist) for dist in distancias[0]]
-            index_of_min = np.argmin(distanciasNormalizadas)
-            if distanciasNormalizadas[index_of_min] > 0.55:  # Limite de distância para considerar um match
-              st.write("Nenhum rosto reconhecido com confiança suficiente.")
-              st.button("Conferir via CPF", key="conferir_cpf")
-            else:
-              colFoto, colInfo = st.columns(2)
-              with colFoto:
-                caption = f"Match com probabilidade(distância) de {distanciasNormalizadas[index_of_min]*100:.2f}% em potencial com base dados"
-                st.image(f"./database/imgs/{imgs_cnh[index_of_min]}", caption=caption)
-              with colInfo:
-                st.badge("CNH Ok", color="gray", icon="✅")
-                st.badge("Multas em aberto", color="gray", icon="🚨")
-                st.badge("Mandado judicial em aberto", color="gray", icon="🚨")
-                st.button("Mais detalhes", key="mais_detalhes")
-                st.button("Conferir via CPF", key="conferir_cpf")
-          else:
-            st.write("Nenhum rosto reconhecido.")
+          distanciasNormalizadas = [np.sqrt(dist) for dist in distancias[0]]
+          index_of_min = np.argmin(distanciasNormalizadas)
+          if distanciasNormalizadas[index_of_min] > 0.55:  # Limite de distância para considerar um match
+            st.write("Nenhum rosto reconhecido com confiança suficiente.")
             st.button("Conferir via CPF", key="conferir_cpf")
-      else:
-        st.write("Nenhuma face detectada.")
+          else:
+            colFoto, colInfo = st.columns(2)
+            with colFoto:
+              caption = f"Match com probabilidade(distância) de {distanciasNormalizadas[index_of_min]*100:.2f}% em potencial com base dados"
+              st.image(f"./database/imgs/{imgs_cnh[index_of_min]}", caption=caption)
+            with colInfo:
+              st.badge("CNH Ok", color="gray", icon="✅")
+              st.badge("Multas em aberto", color="gray", icon="🚨")
+              st.badge("Mandado judicial em aberto", color="gray", icon="🚨")
+              st.button("Mais detalhes", key="mais_detalhes")
+              st.button("Conferir via CPF", key="conferir_cpf")
+        else:
+          st.write("Nenhum rosto reconhecido.")
+          st.button("Conferir via CPF", key="conferir_cpf")
+    else:
+      st.write("Nenhuma face detectada.")
+
+imgFileBufferPlaca = st.camera_input("Tire uma foto", key="camera_placa")
+
+if imgFileBufferPlaca is not None:
+  # Converte para imagem OpenCV
+  img = Image.open(imgFileBufferPlaca)
+  img_array = np.array(img)
+
+  img_array_gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+  blur = cv2.bilateralFilter(img_array_gray, 11, 17, 17)
+
+  edged = cv2.Canny(blur, 30, 200)
+
+  conts = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+  conts = imutils.grab_contours(conts) 
+  conts = sorted(conts, key=cv2.contourArea, reverse=True)[:8] 
+
+  location = None
+  for c in conts:
+    peri = cv2.arcLength(c, True)
+    aprox = cv2.approxPolyDP(c, 0.02 * peri, True)
+    if cv2.isContourConvex(aprox):
+      if len(aprox) == 4:
+        location = aprox
+        break
+  
+  mask = np.zeros(img_array_gray.shape, np.uint8) 
+
+  img_plate = cv2.drawContours(mask, [location], 0, 255, -1)
+  img_plate = cv2.bitwise_and(img_array_gray, img_array_gray, mask=mask)
+
+  (y, x) = np.where(mask==255)
+  (beginX, beginY) = (np.min(x), np.min(y))
+  (endX, endY) = (np.max(x), np.max(y))
+
+  plate = img_array_gray[beginY:endY, beginX:endX]
+
+  cv2.imwrite("./placa.jpg", plate)
+
+  config_tesseract = "--tessdata-dir tessdata --psm 6"
+  text = pytesseract.image_to_string(plate, lang="por", config=config_tesseract)
+  print(text)
+  text = "".join(character for character in text if character.isalnum())
+  print(text)
