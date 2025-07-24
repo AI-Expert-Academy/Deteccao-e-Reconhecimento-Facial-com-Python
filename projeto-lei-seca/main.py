@@ -65,6 +65,75 @@ def reconheceFace(face_300x300):
     logger.debug("Nenhuma face detectada para reconhecimento utilizando modelo CNN da biblioteca face_recognition.")
     return None, None
 
+def detect_plate(file_img):
+  img = cv2.imread(file_img)
+  (H, W) = img.shape[:2]
+  gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+  blur = cv2.bilateralFilter(gray, 11, 17, 17)
+  edged = cv2.Canny(blur, 30, 200)
+  cv2.imwrite('edged.jpg', edged)
+  conts = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE) 
+  conts = imutils.grab_contours(conts) 
+  conts = sorted(conts, key=cv2.contourArea, reverse=True)[:8] 
+
+  location = None
+  for c in conts:
+    peri = cv2.arcLength(c, True)
+    aprox = cv2.approxPolyDP(c, 0.02 * peri, True)
+    if cv2.isContourConvex(aprox):
+      if len(aprox) == 4:
+          location = aprox
+          break
+
+  beginX = beginY = endX = endY = None
+  if location is None:
+    plate = False
+  else:
+    mask = np.zeros(gray.shape, np.uint8) 
+
+    img_plate = cv2.drawContours(mask, [location], 0, 255, -1)
+    img_plate = cv2.bitwise_and(img, img, mask=mask)
+
+    (y, x) = np.where(mask==255)
+    (beginX, beginY) = (np.min(x), np.min(y))
+    (endX, endY) = (np.max(x), np.max(y))
+
+    plate = gray[beginY:endY, beginX:endX]
+    cv2.imwrite('plate.jpg', plate)
+
+  return img, plate, beginX, beginY, endX, endY
+
+def recognize_plate(file_img):
+  img, plate, beginX, beginY, endX, endY = detect_plate(file_img)
+
+  if plate is False:
+    print("It was not possible to detect!")
+    return 0
+
+  config_tesseract = "--tessdata-dir tessdata --psm 6"
+  text = pytesseract.image_to_string(plate, lang="por", config=config_tesseract)
+  print(text)
+  text = "".join(character for character in text if character.isalnum())
+  print(text)
+
+  img = cv2.putText(img, text, (beginX, beginY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (150,255,0), 2, lineType=cv2.LINE_AA)
+  img = cv2.rectangle(img, (beginX, beginY), (endX, endY), (150, 255, 0), 2)
+  
+  cv2.imwrite("placa2.jpg", plate)
+
+  return img, plate
+
+def preprocessing(img):
+  increase = cv2.resize(img, None, fx=1.2, fy=1.2, interpolation=cv2.INTER_CUBIC)
+  value, otsu = cv2.threshold(increase, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+  return otsu
+
+def ocr_plate(plate):
+  config_tesseract = "--tessdata-dir tessdata --psm 6"
+  text = pytesseract.image_to_string(plate, lang="por", config=config_tesseract)
+  text = "".join(c for c in text if c.isalnum())
+  return text
+
 logger.info("Início do carregamento do modelo de detecção de faces.")
 arquivo_modelo = './res10_300x300_ssd_iter_140000.caffemodel'
 arquivo_prototxt = './deploy.prototxt.txt'
@@ -135,44 +204,10 @@ imgFileBufferPlaca = st.camera_input("Tire uma foto", key="camera_placa")
 
 if imgFileBufferPlaca is not None:
   # Converte para imagem OpenCV
-  img = Image.open(imgFileBufferPlaca)
-  img_array = np.array(img)
-
-  img_array_gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
-  blur = cv2.bilateralFilter(img_array_gray, 11, 17, 17)
-
-  edged = cv2.Canny(blur, 30, 200)
-
-  conts = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-  conts = imutils.grab_contours(conts) 
-  conts = sorted(conts, key=cv2.contourArea, reverse=True)[:8] 
-
-  location = None
-  for c in conts:
-    peri = cv2.arcLength(c, True)
-    aprox = cv2.approxPolyDP(c, 0.02 * peri, True)
-    if cv2.isContourConvex(aprox):
-      if len(aprox) == 4:
-        location = aprox
-        break
-  
-  mask = np.zeros(img_array_gray.shape, np.uint8) 
-
-  img_plate = cv2.drawContours(mask, [location], 0, 255, -1)
-  img_plate = cv2.bitwise_and(img_array_gray, img_array_gray, mask=mask)
-
-  (y, x) = np.where(mask==255)
-  (beginX, beginY) = (np.min(x), np.min(y))
-  (endX, endY) = (np.max(x), np.max(y))
-
-  plate = img_array_gray[beginY:endY, beginX:endX]
-
-  cv2.imwrite("./placa.jpg", plate)
-
-  config_tesseract = "--tessdata-dir tessdata --psm 6"
-  text = pytesseract.image_to_string(plate, lang="por", config=config_tesseract)
-  print(text)
-  text = "".join(character for character in text if character.isalnum())
+  img, plate = recognize_plate('daniel.jpeg')
+  processed_plate = preprocessing(plate)
+  cv2.imwrite('processed_plate.jpg', processed_plate)
+  text = ocr_plate(processed_plate)
   print(text)
 
   # 2 Containers lado a lado: Um para detecção de placa e outro para reconhecimento
@@ -181,9 +216,9 @@ if imgFileBufferPlaca is not None:
   with colDeteccaoPlaca:
     st.write("Detecção de placa:")
 
-    imgPlacaDetectada = cv2.rectangle(img_array, (beginX, beginY), (endX, endY), (0, 255, 0), 3)
+    # imgPlacaDetectada = cv2.rectangle(img_array, (beginX, beginY), (endX, endY), (0, 255, 0), 3)
 
-    st.image(imgPlacaDetectada, caption="Imagem capturada", use_container_width=True)
+    st.image(img, caption="Imagem capturada", use_container_width=True)
 
     with colReconhecimentoPlaca:
       st.write("Reconhecimento de placa:")
