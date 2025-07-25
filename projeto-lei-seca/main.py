@@ -1,9 +1,10 @@
+import re
 import cv2 # OpenCV
+import easyocr
 import face_recognition
 import faiss
 import imutils
 import numpy as np
-import tempfile
 import os
 import streamlit as st
 import logging
@@ -65,74 +66,23 @@ def reconheceFace(face_300x300):
     logger.debug("Nenhuma face detectada para reconhecimento utilizando modelo CNN da biblioteca face_recognition.")
     return None, None
 
-def detect_plate(file_img):
-  img = cv2.imread(file_img)
-  (H, W) = img.shape[:2]
-  gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-  blur = cv2.bilateralFilter(gray, 11, 17, 17)
-  edged = cv2.Canny(blur, 30, 200)
-  cv2.imwrite('edged.jpg', edged)
-  conts = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE) 
-  conts = imutils.grab_contours(conts) 
-  conts = sorted(conts, key=cv2.contourArea, reverse=True)[:8] 
+def normalizar_ocr(texto_ocr: str) -> str:
+  substituicoes = {
+      '@': 'Q',
+      '0': 'O',
+      '1': 'I',
+      '8': 'B',
+      '$': 'S',
+  }
 
-  location = None
-  for c in conts:
-    peri = cv2.arcLength(c, True)
-    aprox = cv2.approxPolyDP(c, 0.02 * peri, True)
-    if cv2.isContourConvex(aprox):
-      if len(aprox) == 4:
-          location = aprox
-          break
+  texto_corrigido = texto_ocr.upper()
+  texto_corrigido_chararray = list(texto_corrigido)
+  for i, char in enumerate(texto_corrigido_chararray):
+    if i == 0 or i == 1 or i == 2 or i == 4:
+      if char in substituicoes:
+        texto_corrigido_chararray[i] = substituicoes[char]
 
-  beginX = beginY = endX = endY = None
-  if location is None:
-    plate = False
-  else:
-    mask = np.zeros(gray.shape, np.uint8) 
-
-    img_plate = cv2.drawContours(mask, [location], 0, 255, -1)
-    img_plate = cv2.bitwise_and(img, img, mask=mask)
-
-    (y, x) = np.where(mask==255)
-    (beginX, beginY) = (np.min(x), np.min(y))
-    (endX, endY) = (np.max(x), np.max(y))
-
-    plate = gray[beginY:endY, beginX:endX]
-    cv2.imwrite('plate.jpg', plate)
-
-  return img, plate, beginX, beginY, endX, endY
-
-def recognize_plate(file_img):
-  img, plate, beginX, beginY, endX, endY = detect_plate(file_img)
-
-  if plate is False:
-    print("It was not possible to detect!")
-    return 0
-
-  config_tesseract = "--tessdata-dir tessdata --psm 6"
-  text = pytesseract.image_to_string(plate, lang="por", config=config_tesseract)
-  print(text)
-  text = "".join(character for character in text if character.isalnum())
-  print(text)
-
-  img = cv2.putText(img, text, (beginX, beginY - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (150,255,0), 2, lineType=cv2.LINE_AA)
-  img = cv2.rectangle(img, (beginX, beginY), (endX, endY), (150, 255, 0), 2)
-  
-  cv2.imwrite("placa2.jpg", plate)
-
-  return img, plate
-
-def preprocessing(img):
-  increase = cv2.resize(img, None, fx=1.2, fy=1.2, interpolation=cv2.INTER_CUBIC)
-  value, otsu = cv2.threshold(increase, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-  return otsu
-
-def ocr_plate(plate):
-  config_tesseract = "--tessdata-dir tessdata --psm 6"
-  text = pytesseract.image_to_string(plate, lang="por", config=config_tesseract)
-  text = "".join(c for c in text if c.isalnum())
-  return text
+  return "".join(texto_corrigido_chararray)
 
 logger.info("Início do carregamento do modelo de detecção de faces.")
 arquivo_modelo = './res10_300x300_ssd_iter_140000.caffemodel'
@@ -200,30 +150,50 @@ if imgFileBufferFace is not None:
     else:
       st.write("Nenhuma face detectada.")
 
-imgFileBufferPlaca = st.camera_input("Tire uma foto", key="camera_placa")
+uploaded_file = st.file_uploader("Faça upload de uma imagem com uma placa", type=["jpg", "jpeg", "png"])
 
-if imgFileBufferPlaca is not None:
-  # Converte para imagem OpenCV
-  img, plate = recognize_plate('daniel.jpeg')
-  processed_plate = preprocessing(plate)
-  cv2.imwrite('processed_plate.jpg', processed_plate)
-  text = ocr_plate(processed_plate)
-  print(text)
+if uploaded_file:
+  file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+  image = cv2.imdecode(file_bytes, 1)
+  image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
   # 2 Containers lado a lado: Um para detecção de placa e outro para reconhecimento
   colDeteccaoPlaca, colReconhecimentoPlaca = st.columns(2)
-
+  
   with colDeteccaoPlaca:
+    reader = easyocr.Reader(['pt'])
+    results = reader.readtext(image)
+    
     st.write("Detecção de placa:")
+    pattern = r'^[A-Z0-9]{3}[0-9][A-Z0-9][0-9]{2}$'
+    algumaPlacaDetectada = False
+    for bbox, text, conf in results:
+      if conf > 0.5:
+        placa = text.upper().strip()
+        placa = normalizar_ocr(placa)
 
-    # imgPlacaDetectada = cv2.rectangle(img_array, (beginX, beginY), (endX, endY), (0, 255, 0), 3)
+        print(f"Texto detectado: {placa} (confiança: {conf:.2f})")
 
-    st.image(img, caption="Imagem capturada", use_container_width=True)
+        if re.fullmatch(pattern, placa):
+          algumaPlacaDetectada = True
+          (tl, tr, br, bl) = bbox
+          tl = tuple(map(int, tl))
+          br = tuple(map(int, br))
+          cv2.rectangle(image, tl, br, (0, 255, 0), 2)
+          st.image(image, caption="Imagem carregada", use_container_width=True)
+          print(f"✅ {placa} é válida")
+          print(f"Texto detectado: {placa} (confiança: {conf:.2f})")
 
-    with colReconhecimentoPlaca:
-      st.write("Reconhecimento de placa:")
-      st.text_input("Placa detectada:", value=text, key="placa_detectada")
+          with colReconhecimentoPlaca:
+            st.write("Reconhecimento de placa:")
+            st.text_input("Placa detectada:", value=placa, key="placa_detectada")
+            st.button("Conferir via placa", key="conferir_placa")
+            st.badge("IPVA em dia", color="gray", icon="✅")
+            st.badge("Multas em aberto", color="gray", icon="🚨")
+            st.badge("Carro clonado", color="gray", icon="🚨")
+        else:
+          print(f"❌ {placa} é inválida")
+    
+    if not algumaPlacaDetectada:
+      st.write("Nenhuma placa detectada.")
       st.button("Conferir via placa", key="conferir_placa")
-      st.badge("IPVA em dia", color="gray", icon="✅")
-      st.badge("Multas em aberto", color="gray", icon="🚨")
-      st.badge("Carro clonado", color="gray", icon="🚨")
